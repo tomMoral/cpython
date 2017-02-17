@@ -107,7 +107,7 @@ class ThreadPoolExecutor(_base.Executor):
     _counter = itertools.count().__next__
 
     def __init__(self, max_workers=None, thread_name_prefix='',
-                 initializer=None, initargs=()):
+                 initializer=None, initargs=(), max_queue_size=0):
         """Initializes a new ThreadPoolExecutor instance.
 
         Args:
@@ -116,6 +116,8 @@ class ThreadPoolExecutor(_base.Executor):
             thread_name_prefix: An optional name prefix to give our threads.
             initializer: An callable used to initialize worker threads.
             initargs: A tuple of arguments to pass to the initializer.
+            max_queue_size: The maximum number of work items to buffer before
+                submit() blocks, defaults to 0 (unbounded).
         """
         if max_workers is None:
             # Use this number because ThreadPoolExecutor is often
@@ -126,6 +128,10 @@ class ThreadPoolExecutor(_base.Executor):
 
         if initializer is not None and not callable(initializer):
             raise TypeError("initializer must be a callable")
+
+        # check that max_queue_size is a positive integer
+        if type(max_queue_size) is not int or max_queue_size < 0:
+            raise ValueError("max_queue_size must be equal or greater 0")
 
         self._max_workers = max_workers
         self._work_queue = queue.SimpleQueue()

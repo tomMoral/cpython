@@ -132,10 +132,13 @@ And::
    executor.submit(wait_on_future)
 
 
-.. class:: ThreadPoolExecutor(max_workers=None, thread_name_prefix='', initializer=None, initargs=())
+.. class:: ThreadPoolExecutor(max_workers=None, thread_name_prefix='', initializer=None, initargs=(), max_queue_size=0)
 
    An :class:`Executor` subclass that uses a pool of at most *max_workers*
-   threads to execute calls asynchronously.
+   threads to execute calls asynchronously. If all worker threads are busy it
+   buffers new work items using a queue of maximum size *max_queue_size*. When
+   this maximum size is reached, map() and submit() will block until more work
+   items have been processed.
 
    *initializer* is an optional callable that is called at the start of
    each worker thread; *initargs* is a tuple of arguments passed to the
@@ -155,6 +158,12 @@ And::
       The *thread_name_prefix* argument was added to allow users to
       control the threading.Thread names for worker threads created by
       the pool for easier debugging.
+
+   .. versionadded:: 3.7
+      The *max_queue_size* argument was added to allow users to control
+      the maximum queue size to not accidentally run out of memory when
+      new work items are added at a higher rate than what the worker
+      threads can handle.
 
    .. versionchanged:: 3.7
       Added the *initializer* and *initargs* arguments.

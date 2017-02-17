@@ -364,6 +364,29 @@ class ThreadPoolShutdownTest(ThreadPoolMixin, ExecutorShutdownTest, BaseTestCase
             self.assertRegex(t.name, r'ThreadPoolExecutor-\d+_[0-4]$')
             t.join()
 
+    def test_default_max_queue_size(self):
+        with futures.ThreadPoolExecutor() as executor:
+            self.assertEqual(executor._work_queue.maxsize, 0)
+
+    def test_custom_max_queue_size(self):
+        qsize = 1
+        with futures.ThreadPoolExecutor(max_queue_size=qsize) as executor:
+            # test custom queue size was passed down
+            self.assertEqual(executor._work_queue.maxsize, qsize)
+
+            # test executor works with custom size
+            n = 10
+
+            def process_item(item):
+                return item + 1
+
+            fs = [executor.submit(process_item, i) for i in range(n)]
+            expected_results = [process_item(i) for i in range(n)]
+
+            for f in futures.as_completed(fs, timeout=10):
+                result = f.result()
+                self.assertTrue(result in expected_results, result)
+
 
 class ProcessPoolShutdownTest(ExecutorShutdownTest):
     def _prime_executor(self):

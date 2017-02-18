@@ -22,7 +22,7 @@ from concurrent import futures
 from concurrent.futures._base import (
     PENDING, RUNNING, CANCELLED, CANCELLED_AND_NOTIFIED, FINISHED, Future)
 from concurrent.futures.process import BrokenProcessPool
-from multiprocessing import get_context
+import multiprocessing as mp
 
 
 def create_future(state=PENDING, exception=None, result=None):
@@ -100,7 +100,7 @@ class ProcessPoolMixin(ExecutorMixin):
         try:
             self.executor = self.executor_type(
                 max_workers=self.worker_count,
-                ctx=get_context(self.ctx))
+                ctx=mp.get_context(self.ctx))
         except NotImplementedError as e:
             self.skipTest(str(e))
         self._prime_executor()
@@ -615,6 +615,23 @@ class ProcessPoolSpawnExecutorTest(ProcessPoolSpawnMixin,
     pass
 
 
+#
+# Creates a wrapper for a function which records the time it takes to finish
+#
+
+class TimingWrapper(object):
+
+    def __init__(self, func):
+        self.func = func
+        self.elapsed = None
+
+    def __call__(self, *args, **kwds):
+        t = time.time()
+        try:
+            return self.func(*args, **kwds)
+        finally:
+            self.elapsed = time.time() - t
+
 def _crash():
     """Induces a segfault"""
     import faulthandler
@@ -669,19 +686,6 @@ class ErrorAtUnpickle(object):
 class ExecutorDeadlockTest():
 
     @classmethod
-    def setUp(cls):
-        # this permits to avoid deadlocks in tests and dump
-        # the trace if a test run for more than 10s
-        from faulthandler import dump_traceback_later
-        from sys import stderr
-        dump_traceback_later(timeout=1, exit=True, file=stderr)
-
-    @classmethod
-    def tearDown(cls):
-        from faulthandler import cancel_dump_traceback_later
-        cancel_dump_traceback_later()
-
-    @classmethod
     def _sleep_id(cls, args):
         x, delay = args
         time.sleep(delay)
@@ -689,13 +693,12 @@ class ExecutorDeadlockTest():
 
     def test_crash(self):
         # extensive testing for deadlock caused by crash in a pool
-        from concurrent.futures.process import BrokenProcessPool
         from pickle import PicklingError
         crash_cases = [
             # Check problem occuring while pickling a task in
             # the task_handler thread
-            # (id, (ExitAtPickle(),), BrokenProcessPool, "exit at task pickle"),
-            # (id, (ErrorAtPickle(),), BrokenProcessPool, "error at task pickle"),
+            (id, (ExitAtPickle(),), BrokenProcessPool, "exit at task pickle"),
+            (id, (ErrorAtPickle(),), BrokenProcessPool, "error at task pickle"),
             # Check problem occuring while unpickling a task on workers
             (id, (ExitAtUnpickle(),), BrokenProcessPool,
              "exit at task unpickle"),
@@ -720,25 +723,109 @@ class ExecutorDeadlockTest():
              "error during result pickle on worker"),
             # Check problem occuring while unpickling a task in
             # the result_handler thread
-            # (_return_instance, (ExitAtUnpickle,), BrokenProcessPool,
-            # "exit during result unpickle in result_handler"),
-            # (_return_instance, (ErrorAtUnpickle,), BrokenProcessPool,
-            #  "error during result unpickle in result_handler"),
+            (_return_instance, (ExitAtUnpickle,), BrokenProcessPool,
+            "exit during result unpickle in result_handler"),
+            (_return_instance, (ErrorAtUnpickle,), BrokenProcessPool,
+             "error during result unpickle in result_handler"),
         ]
         for func, args, error, name in crash_cases:
-            self.setUp()
             with self.subTest(name):
                 # skip the test involving pickle errors with manager as it
                 # breaks the manager and not the pool in this cases
                 # skip the test involving pickle errors with thread as the
                 # tasks and results are not pickled in this case
-                executor = self.executor_type(max_workers=2, 
-                                              ctx=get_context(self.ctx))
+                executor = self.executor_type(max_workers=2,
+                                              ctx=mp.get_context(self.ctx))
                 res = executor.submit(func, *args)
-                print(name)
                 with self.assertRaises(error):
                     res.result()
-        self.tearDown()
+                executor.shutdown()
+
+    @classmethod
+    def _test_getpid(cls, a):
+        return os.getpid()
+
+    @classmethod
+    def _test_kill_worker(cls, pid=None, delay=0.01):
+        """Function that send SIGKILL at process pid after delay second"""
+        time.sleep(delay)
+        if pid is None:
+            pid = os.getpid()
+        try:
+            from signal import SIGKILL
+        except ImportError:
+            from signal import SIGTERM as SIGKILL
+        try:
+            os.kill(pid, SIGKILL)
+            time.sleep(.01)
+        except ProcessLookupError:
+            mp.util.debug("process {} was already dead".format(pid))
+
+    def test_crash_races(self):
+
+        # skip if the mixin is threads as killing a process result in killing
+        # the pool
+        if self.TYPE == 'threads':
+            self.skipTest('test not appropriate for threads')
+
+        for n_proc in [1, 2, 5, 17]:
+            with self.subTest(n_proc=n_proc):
+                # Test for external crash signal comming from neighbor
+                # with various race setup
+                self.setUp()
+                try:
+                    raise AttributeError()
+                    pids = [p.pid for p in self.executor._processes]
+                    assert len(pids) == n_proc
+                except AttributeError:
+                    pids = self.executor.map(self._test_getpid,
+                                             [None] * n_proc)
+                assert None not in pids
+                res = self.executor.map(
+                    self._sleep_id, 
+                    [(True, .001 * (j // 2)) for j in range(2 * n_proc)],
+                    chunksize=1)
+                assert all(res)
+                res = self.executor.map_async(self._test_kill_worker,
+                                              pids[::-1])
+                with self.assertRaises(BrokenProcessPool):
+                    res.get()
+                self.tearDown()
+
+    def test_terminate_deadlock(self):
+        # Test that the pool calling terminate do not cause deadlock
+        # if a worker failed
+
+        # skip if the mixin is threads as killing a process result in killing
+        # the pool
+        if self.TYPE == 'threads':
+            self.skipTest('test not appropriate for threads')
+
+        # self.skipTest('known failure')
+        with self.executor_type(max_workers=2,
+                                ctx=mp.get_context(self._ctx)) as executor:
+            terminate = TimingWrapper(executor.shutdown)
+            executor.submit(self._test_kill_worker, ())
+            time.sleep(.01)
+            terminate()
+            self.assertLess(terminate.elapsed, 0.5)
+
+    def test_terminate_kill(self):
+        # Test pool termination handling
+
+        from multiprocessing.pool import TerminatedPoolError
+        with self.assertRaises(TerminatedPoolError):
+            with self.executor_type(max_workers=2,
+                                    ctx=mp.get_context(self._ctx)) as executor:
+                res1 = executor.map(self._sleep_id,
+                                    [(i, 0.001) for i in range(50)])
+                res2 = executor.map(self._sleep_id,
+                                    [(i, 0.002) for i in range(50)])
+                assert list(res1) == list(range(50))
+                # We should get an error as the pool terminated before we
+                # fetched the results from the operation.
+                executor.shutdown(wait=False)
+                res2.get()
 
 
 class ProcessPoolForkExecutorDeadlockTest(ProcessPoolForkMixin,

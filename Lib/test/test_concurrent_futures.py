@@ -22,6 +22,7 @@ from concurrent import futures
 from concurrent.futures._base import (
     PENDING, RUNNING, CANCELLED, CANCELLED_AND_NOTIFIED, FINISHED, Future)
 from concurrent.futures.process import BrokenProcessPool
+from multiprocessing import get_context
 
 
 def create_future(state=PENDING, exception=None, result=None):
@@ -93,6 +94,28 @@ class ThreadPoolMixin(ExecutorMixin):
 
 class ProcessPoolMixin(ExecutorMixin):
     executor_type = futures.ProcessPoolExecutor
+
+    def setUp(self):
+        self.t1 = time.time()
+        try:
+            self.executor = self.executor_type(
+                max_workers=self.worker_count,
+                ctx=get_context(self.ctx))
+        except NotImplementedError as e:
+            self.skipTest(str(e))
+        self._prime_executor()
+
+
+class ProcessPoolForkMixin(ProcessPoolMixin):
+    ctx = "fork"
+
+
+class ProcessPoolSpawnMixin(ProcessPoolMixin):
+    ctx = "spawn"
+
+
+class ProcessPoolForkserverMixin(ProcessPoolMixin):
+    ctx = "forkserver"
 
 
 class ExecutorShutdownTest:
@@ -179,7 +202,7 @@ class ThreadPoolShutdownTest(ThreadPoolMixin, ExecutorShutdownTest, unittest.Tes
             t.join()
 
 
-class ProcessPoolShutdownTest(ProcessPoolMixin, ExecutorShutdownTest, unittest.TestCase):
+class ProcessPoolShutdownTest(ExecutorShutdownTest):
     def _prime_executor(self):
         pass
 
@@ -213,6 +236,25 @@ class ProcessPoolShutdownTest(ProcessPoolMixin, ExecutorShutdownTest, unittest.T
         queue_management_thread.join()
         for p in processes.values():
             p.join()
+
+
+class ProcessPoolForkShutdownTest(ProcessPoolForkMixin, unittest.TestCase,
+                                  ProcessPoolShutdownTest):
+    def _prime_executor(self):
+        pass
+
+
+class ProcessPoolForkserverShutdownTest(ProcessPoolForkserverMixin,
+                                        unittest.TestCase,
+                                        ProcessPoolShutdownTest):
+    def _prime_executor(self):
+        pass
+
+
+class ProcessPoolSpawnShutdownTest(ProcessPoolSpawnMixin, unittest.TestCase,
+                                   ProcessPoolShutdownTest):
+    def _prime_executor(self):
+        pass
 
 
 class WaitTests:
@@ -334,7 +376,18 @@ class ThreadPoolWaitTests(ThreadPoolMixin, WaitTests, unittest.TestCase):
             sys.setswitchinterval(oldswitchinterval)
 
 
-class ProcessPoolWaitTests(ProcessPoolMixin, WaitTests, unittest.TestCase):
+class ProcessPoolForkWaitTests(ProcessPoolForkMixin, unittest.TestCase,
+                               WaitTests):
+    pass
+
+
+class ProcessPoolForkserverWaitTests(ProcessPoolForkserverMixin, WaitTests,
+                                     unittest.TestCase):
+    pass
+
+
+class ProcessPoolSpawnWaitTests(ProcessPoolSpawnMixin, unittest.TestCase,
+                                WaitTests):
     pass
 
 
@@ -387,7 +440,20 @@ class ThreadPoolAsCompletedTests(ThreadPoolMixin, AsCompletedTests, unittest.Tes
     pass
 
 
-class ProcessPoolAsCompletedTests(ProcessPoolMixin, AsCompletedTests, unittest.TestCase):
+
+class ProcessPoolForkAsCompletedTests(ProcessPoolForkMixin, AsCompletedTests,
+                                      unittest.TestCase):
+    pass
+
+
+class ProcessPoolForkserverAsCompletedTests(ProcessPoolForkserverMixin,
+                                            AsCompletedTests,
+                                            unittest.TestCase):
+    pass
+
+
+class ProcessPoolSpawnAsCompletedTests(ProcessPoolSpawnMixin, AsCompletedTests,
+                                       unittest.TestCase):
     pass
 
 
@@ -475,7 +541,7 @@ class ThreadPoolExecutorTest(ThreadPoolMixin, ExecutorTest, unittest.TestCase):
                          (os.cpu_count() or 1) * 5)
 
 
-class ProcessPoolExecutorTest(ProcessPoolMixin, ExecutorTest, unittest.TestCase):
+class ProcessPoolExecutorTest(ExecutorTest):
     def test_killed_child(self):
         # When a child process is abruptly terminated, the whole pool gets
         # "broken".
@@ -529,6 +595,25 @@ class ProcessPoolExecutorTest(ProcessPoolMixin, ExecutorTest, unittest.TestCase)
                 sys.excepthook(*sys.exc_info())
         self.assertIn('raise RuntimeError(123) # some comment',
                       f1.getvalue())
+
+
+class ProcessPoolForkExecutorTest(ProcessPoolForkMixin,
+                                  ProcessPoolExecutorTest,
+                                  unittest.TestCase):
+    pass
+
+
+class ProcessPoolForkserverExecutorTest(ProcessPoolForkserverMixin,
+                                        ProcessPoolExecutorTest,
+                                        unittest.TestCase):
+    pass
+
+
+class ProcessPoolSpawnExecutorTest(ProcessPoolSpawnMixin,
+                                   ProcessPoolExecutorTest,
+                                   unittest.TestCase):
+    pass
+
 
 
 class FutureTests(unittest.TestCase):

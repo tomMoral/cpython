@@ -6,12 +6,14 @@
 The follow diagram and text describe the data-flow through the system:
 
 |======================= In-process =====================|== Out-of-process ==|
-
-+----------+     +----------+       +--------+     +-----------+    +---------+
-|          |  => | Work Ids |    => |        |  => | Call Q    | => |         |
-|          |     +----------+       |        |     +-----------+    |         |
-|          |     | ...      |       |        |     | ...       |    |         |
-|          |     | 6        |       |        |     | 5, call() |    |         |
+                               +------------------+
+                               |  Thread watcher  |
+                               +------------------+
++----------+     +----------+           |          +-----------+    +---------+
+|          |  => | Work Ids |           v          | Call Q    |    | Process |
+|          |     +----------+       +--------+     +-----------+    |  Pool   |
+|          |     | ...      |       |        |     | ...       |    +---------+
+|          |     | 6        |    => |        |  => | 5, call() | => |         |
 |          |     | 7        |       |        |     | ...       |    |         |
 | Process  |     | ...      |       | Local  |     +-----------+    | Process |
 |  Pool    |     +----------+       | Worker |                      |  #1..n  |
@@ -365,7 +367,7 @@ class BrokenProcessPool(RuntimeError):
 
 
 class ProcessPoolExecutor(_base.Executor):
-    def __init__(self, max_workers=None):
+    def __init__(self, max_workers=None, ctx=None):
         """Initializes a new ProcessPoolExecutor instance.
 
         Args:
@@ -382,17 +384,18 @@ class ProcessPoolExecutor(_base.Executor):
                 raise ValueError("max_workers must be greater than 0")
 
             self._max_workers = max_workers
+        if ctx is None:
+            ctx = multiprocessing.get_context()
 
         # Make the call queue slightly larger than the number of processes to
         # prevent the worker processes from idling. But don't make it too big
         # because futures in the call queue cannot be cancelled.
-        self._call_queue = multiprocessing.Queue(self._max_workers +
-                                                 EXTRA_QUEUED_CALLS)
+        self._call_queue = ctx.Queue(self._max_workers + EXTRA_QUEUED_CALLS)
         # Killed worker processes can produce spurious "broken pipe"
         # tracebacks in the queue's own worker thread. But we detect killed
         # processes anyway, so silence the tracebacks.
         self._call_queue._ignore_epipe = True
-        self._result_queue = SimpleQueue()
+        self._result_queue = ctx.SimpleQueue()
         self._work_ids = queue.Queue()
         self._queue_management_thread = None
         # Map of pids to processes
@@ -414,13 +417,13 @@ class ProcessPoolExecutor(_base.Executor):
             # Start the processes so that their sentinels are known.
             self._adjust_process_count()
             self._queue_management_thread = threading.Thread(
-                    target=_queue_management_worker,
-                    args=(weakref.ref(self, weakref_cb),
-                          self._processes,
-                          self._pending_work_items,
-                          self._work_ids,
-                          self._call_queue,
-                          self._result_queue))
+                target=_queue_management_worker,
+                args=(weakref.ref(self, weakref_cb),
+                      self._processes,
+                      self._pending_work_items,
+                      self._work_ids,
+                      self._call_queue,
+                      self._result_queue))
             self._queue_management_thread.daemon = True
             self._queue_management_thread.start()
             _threads_queues[self._queue_management_thread] = self._result_queue

@@ -76,11 +76,11 @@ import traceback
 # threads/processes finish.
 
 _threads_queues = weakref.WeakKeyDictionary()
-_shutdown = False
+_global_shutdown = False
 
 def _python_exit():
-    global _shutdown
-    _shutdown = True
+    global _global_shutdown
+    _global_shutdown = True
     items = list(_threads_queues.items())
     for t, q in items:
         q.put(None)
@@ -246,7 +246,7 @@ def _queue_management_worker(executor_reference,
     executor = None
 
     def shutting_down():
-        return _shutdown or executor is None or executor._shutdown_thread
+        return _global_shutdown or executor is None or executor._shutdown_thread
 
     def shutdown_worker():
         # This is an upper bound

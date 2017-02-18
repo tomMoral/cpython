@@ -667,7 +667,6 @@ class TimingWrapper(object):
     """Creates a wrapper for a function which records the time it takes to
     finish
     """
-
     def __init__(self, func):
         self.func = func
         self.elapsed = None
@@ -683,14 +682,18 @@ class TimingWrapper(object):
 class ExecutorDeadlockTest():
 
     @classmethod
-    def _sleep_id(cls, args):
-        x, delay = args
+    def _sleep_id(cls, x, delay):
         time.sleep(delay)
         return x
 
     def test_crash(self):
         # extensive testing for deadlock caused by crash in a pool
+        from pickle import PicklingError
         crash_cases = [
+            # Check problem occuring while pickling a task in
+            # the task_handler thread
+            (id, (ExitAtPickle(),), BrokenProcessPool, "exit at task pickle"),
+            (id, (ErrorAtPickle(),), BrokenProcessPool, "error at task pickle"),
             # Check problem occuring while unpickling a task on workers
             (id, (ExitAtUnpickle(),), BrokenProcessPool,
              "exit at task unpickle"),
@@ -713,6 +716,12 @@ class ExecutorDeadlockTest():
              "exit during result pickle on worker"),
             (_return_instance, (ErrorAtPickle,), BrokenProcessPool,
              "error during result pickle on worker"),
+            # Check problem occuring while unpickling a task in
+            # the result_handler thread
+            (_return_instance, (ExitAtUnpickle,), BrokenProcessPool,
+            "exit during result unpickle in result_handler"),
+            (_return_instance, (ErrorAtUnpickle,), BrokenProcessPool,
+             "error during result unpickle in result_handler")
         ]
         for func, args, error, name in crash_cases:
             with self.subTest(name):
@@ -750,6 +759,7 @@ class ExecutorDeadlockTest():
 
     def test_crash_races(self):
 
+        from itertools import repeat
         for n_proc in [1, 2, 5, 17]:
             with self.subTest(n_proc=n_proc):
                 # Test for external crash signal comming from neighbor
@@ -765,8 +775,8 @@ class ExecutorDeadlockTest():
                        self._test_getpid, [None] * n_proc)]
                 assert None not in pids
                 res = self.executor.map(
-                    self._sleep_id,
-                    [(True, .001 * (j // 2)) for j in range(2 * n_proc)],
+                    self._sleep_id, repeat(True, 2 * n_proc),
+                    [.001 * (j // 2) for j in range(2 * n_proc)],
                     chunksize=1)
                 assert all(res)
                 res = executor.map(self._test_kill_worker, pids[::-1])
@@ -774,17 +784,37 @@ class ExecutorDeadlockTest():
                     [v for v in res]
                 executor.shutdown(wait=True)
 
-    def test_terminate_deadlock(self):
-        # Test that the pool calling terminate do not cause deadlock
-        # if a worker failed
+    def test_shutdown_deadlock(self):
+        """Test that the pool calling terminate do not cause deadlock
+        if a worker failed
+        """
 
         with self.executor_type(max_workers=2,
                                 ctx=get_context(self.ctx)) as executor:
-            terminate = TimingWrapper(executor.shutdown)
+            shutdown = TimingWrapper(executor.shutdown)
             executor.submit(self._test_kill_worker, ())
             time.sleep(.01)
-            terminate()
-            self.assertLess(terminate.elapsed, 0.5)
+            shutdown()
+            self.assertLess(shutdown.elapsed, 0.5)
+
+    def test_shutdown_kill(self):
+        """ProcessPoolExecutor does not wait job end and shutdowm with
+        kill_worker flag set to True.
+        """
+        from itertools import repeat
+        from concurrent.futures.process import ShutdownExecutor
+        executor = self.executor_type(max_workers=2,
+                                      ctx=get_context(self.ctx))
+        res1 = executor.map(self._sleep_id, range(50), repeat(.001))
+        res2 = executor.map(self._sleep_id, range(50), repeat(.1))
+        assert list(res1) == list(range(50))
+        # We should get an error as the executor shutdowned before we fetched
+        # the results from the operation.
+        shutdown = TimingWrapper(executor.shutdown)
+        shutdown(wait=True, kill_workers=True)
+        assert shutdown.elapsed < .5
+        with self.assertRaises(ShutdownExecutor):
+            list(res2)
 
 
 class ProcessPoolForkExecutorDeadlockTest(ProcessPoolForkMixin,

@@ -615,6 +615,149 @@ class ProcessPoolSpawnExecutorTest(ProcessPoolSpawnMixin,
     pass
 
 
+def _crash():
+    """Induces a segfault"""
+    import faulthandler
+    faulthandler.disable()
+    faulthandler._sigsegv()
+
+def _exit():
+    """Induces a sys exit with exitcode 1"""
+    sys.exit(1)
+
+def _raise_error(Err):
+    """Function that raises an Exception in process"""
+    raise Err()
+
+def _return_instance(cls):
+    """Function that returns a instance of cls"""
+    return cls()
+
+class CrashAtPickle(object):
+    """Bad object that triggers a segfault at pickling time."""
+    def __reduce__(self):
+        _crash()
+
+class CrashAtUnpickle(object):
+    """Bad object that triggers a segfault at unpickling time."""
+    def __reduce__(self):
+        return _crash, ()
+
+class ExitAtPickle(object):
+    """Bad object that triggers a segfault at pickling time."""
+    def __reduce__(self):
+        _exit()
+
+class ExitAtUnpickle(object):
+    """Bad object that triggers a process exit at unpickling time."""
+    def __reduce__(self):
+        return _exit, ()
+
+class ErrorAtPickle(object):
+    """Bad object that triggers a segfault at pickling time."""
+    def __reduce__(self):
+        from pickle import PicklingError
+        raise PicklingError("Error in pickle")
+
+class ErrorAtUnpickle(object):
+    """Bad object that triggers a process exit at unpickling time."""
+    def __reduce__(self):
+        from pickle import UnpicklingError
+        return _raise_error, (UnpicklingError, )
+
+
+class ExecutorDeadlockTest():
+
+    @classmethod
+    def setUp(cls):
+        # this permits to avoid deadlocks in tests and dump
+        # the trace if a test run for more than 10s
+        from faulthandler import dump_traceback_later
+        from sys import stderr
+        dump_traceback_later(timeout=1, exit=True, file=stderr)
+
+    @classmethod
+    def tearDown(cls):
+        from faulthandler import cancel_dump_traceback_later
+        cancel_dump_traceback_later()
+
+    @classmethod
+    def _sleep_id(cls, args):
+        x, delay = args
+        time.sleep(delay)
+        return x
+
+    def test_crash(self):
+        # extensive testing for deadlock caused by crash in a pool
+        from concurrent.futures.process import BrokenProcessPool
+        from pickle import PicklingError
+        crash_cases = [
+            # Check problem occuring while pickling a task in
+            # the task_handler thread
+            # (id, (ExitAtPickle(),), BrokenProcessPool, "exit at task pickle"),
+            # (id, (ErrorAtPickle(),), BrokenProcessPool, "error at task pickle"),
+            # Check problem occuring while unpickling a task on workers
+            (id, (ExitAtUnpickle(),), BrokenProcessPool,
+             "exit at task unpickle"),
+            (id, (ErrorAtUnpickle(),), BrokenProcessPool,
+             "error at task unpickle"),
+            (id, (CrashAtUnpickle(),), BrokenProcessPool,
+             "crash at task unpickle"),
+            # Check problem occuring during func execution on workers
+            (_crash, (), BrokenProcessPool,
+             "crash during func execution on worker"),
+            (_exit, (), SystemExit,
+             "exit during func execution on worker"),
+            (_raise_error, (RuntimeError, ), RuntimeError,
+             "error during func execution on worker"),
+            # Check problem occuring while pickling a task result
+            # on workers
+            (_return_instance, (CrashAtPickle,), BrokenProcessPool,
+             "crash during result pickle on worker"),
+            (_return_instance, (ExitAtPickle,), BrokenProcessPool,
+             "exit during result pickle on worker"),
+            (_return_instance, (ErrorAtPickle,), BrokenProcessPool,
+             "error during result pickle on worker"),
+            # Check problem occuring while unpickling a task in
+            # the result_handler thread
+            # (_return_instance, (ExitAtUnpickle,), BrokenProcessPool,
+            # "exit during result unpickle in result_handler"),
+            # (_return_instance, (ErrorAtUnpickle,), BrokenProcessPool,
+            #  "error during result unpickle in result_handler"),
+        ]
+        for func, args, error, name in crash_cases:
+            self.setUp()
+            with self.subTest(name):
+                # skip the test involving pickle errors with manager as it
+                # breaks the manager and not the pool in this cases
+                # skip the test involving pickle errors with thread as the
+                # tasks and results are not pickled in this case
+                executor = self.executor_type(max_workers=2, 
+                                              ctx=get_context(self.ctx))
+                res = executor.submit(func, *args)
+                print(name)
+                with self.assertRaises(error):
+                    res.result()
+        self.tearDown()
+
+
+class ProcessPoolForkExecutorDeadlockTest(ProcessPoolForkMixin,
+                                          ExecutorDeadlockTest,
+                                          unittest.TestCase):
+    pass
+
+
+class ProcessPoolForkserverExecutorDeadlockTest(ProcessPoolForkserverMixin,
+                                                ExecutorDeadlockTest,
+                                                unittest.TestCase):
+    pass
+
+
+class ProcessPoolSpawnExecutorDeadlockTest(ProcessPoolSpawnMixin,
+                                           ExecutorDeadlockTest,
+                                           unittest.TestCase):
+    pass
+
 
 class FutureTests(unittest.TestCase):
     def test_done_callback_with_result(self):

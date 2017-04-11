@@ -2,7 +2,7 @@
 
 import unittest
 import warnings
-from test.support import check_warnings
+from test.support import check_warnings, without_coverage
 
 
 class A:
@@ -86,6 +86,7 @@ class TestSuper(unittest.TestCase):
 
         self.assertEqual(E().f(), 'AE')
 
+    @without_coverage
     def test_various___class___pathologies(self):
         # See issue #12370
         class X(A):

@@ -4,7 +4,7 @@ Tests for the threading module.
 
 import test.support
 from test.support import (verbose, import_module, cpython_only,
-                          requires_type_collecting)
+                          requires_type_collecting, without_coverage)
 from test.support.script_helper import assert_python_ok, assert_python_failure
 
 import random
@@ -18,7 +18,6 @@ import os
 import subprocess
 
 from test import lock_tests
-from test import support
 
 
 # Between fork() and exec(), only async-safe functions are allowed (issues
@@ -782,6 +781,7 @@ class ThreadJoinOnShutdown(BaseTestCase):
 
     @unittest.skipUnless(hasattr(os, 'fork'), "needs os.fork()")
     @unittest.skipIf(sys.platform in platforms_to_skip, "due to known OS bug")
+    @without_coverage
     def test_reinit_tls_after_fork(self):
         # Issue #13817: fork() would deadlock in a multithreaded program with
         # the ad-hoc TLS implementation.
@@ -792,6 +792,7 @@ class ThreadJoinOnShutdown(BaseTestCase):
             if pid > 0:
                 os.waitpid(pid, 0)
             else:
+                print("started")
                 os._exit(0)
 
         # start a bunch of threads that will fork() child processes
@@ -832,6 +833,7 @@ class ThreadJoinOnShutdown(BaseTestCase):
 
 class SubinterpThreadingTests(BaseTestCase):
 
+    @without_coverage
     def test_threads_join(self):
         # Non-daemon threads should be joined at subinterpreter shutdown
         # (issue #18808)
@@ -848,13 +850,14 @@ class SubinterpThreadingTests(BaseTestCase):
                 # Py_EndInterpreter is called.
                 time.sleep(0.05)
                 os.write(%d, b"x")
-            threading.Thread(target=f).start()
+            t = threading.Thread(target=f).start()
             """ % (w,)
         ret = test.support.run_in_subinterp(code)
         self.assertEqual(ret, 0)
         # The thread was joined properly.
         self.assertEqual(os.read(r, 1), b"x")
 
+    @without_coverage
     def test_threads_join_2(self):
         # Same as above, but a delay gets introduced after the thread's
         # Python code returned but before the thread state is deleted.
@@ -996,6 +999,7 @@ class ThreadingExceptionTests(BaseTestCase):
         self.assertIn("ZeroDivisionError", err)
         self.assertNotIn("Unhandled exception", err)
 
+    @without_coverage
     @requires_type_collecting
     def test_print_exception_stderr_is_none_1(self):
         script = r"""if True:
@@ -1026,6 +1030,7 @@ class ThreadingExceptionTests(BaseTestCase):
         self.assertIn("ZeroDivisionError", err)
         self.assertNotIn("Unhandled exception", err)
 
+    @without_coverage
     def test_print_exception_stderr_is_none_2(self):
         script = r"""if True:
             import sys
@@ -1129,8 +1134,8 @@ class MiscTestCase(unittest.TestCase):
     def test__all__(self):
         extra = {"ThreadError"}
         blacklist = {'currentThread', 'activeCount'}
-        support.check__all__(self, threading, ('threading', '_thread'),
-                             extra=extra, blacklist=blacklist)
+        test.support.check__all__(self, threading, ('threading', '_thread'),
+                                  extra=extra, blacklist=blacklist)
 
 if __name__ == "__main__":
     unittest.main()

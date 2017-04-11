@@ -457,6 +457,7 @@ class ImportSideEffectTests(unittest.TestCase):
 
 class StartupImportTests(unittest.TestCase):
 
+    @test.support.without_coverage
     def test_startup_imports(self):
         # This tests checks which modules are loaded by Python when it
         # initially starts upon startup.

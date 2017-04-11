@@ -373,6 +373,7 @@ class BasicSocketTests(unittest.TestCase):
                             (s, t, hex(n)))
 
     @support.cpython_only
+    @support.without_coverage
     def test_refcycle(self):
         # Issue #7943: an SSL object doesn't create reference cycles with
         # itself.

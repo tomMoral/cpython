@@ -174,6 +174,7 @@ class TracebackCases(unittest.TestCase):
         # Issue #18960: coding spec should have no effect
         do_test("x=0\n# coding: GBK\n", "h\xe9 ho", 'utf-8', 5)
 
+    @support.without_coverage
     @support.requires_type_collecting
     def test_print_traceback_at_exit(self):
         # Issue #22599: Ensure that it is possible to use the traceback module
@@ -420,10 +421,12 @@ class TracebackFormatTests(unittest.TestCase):
         actual = stderr_h.getvalue().splitlines()
         self.assertEqual(actual, expected)
 
+    @support.without_coverage
     def test_recursive_traceback_python(self):
         self._check_recursive_traceback_display(traceback.print_exc)
 
     @cpython_only
+    @support.without_coverage
     def test_recursive_traceback_cpython_internal(self):
         from _testcapi import exception_print
         def render_exc():

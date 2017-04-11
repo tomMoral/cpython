@@ -1,0 +1,13 @@
+[run]
+parallel = True
+cover_pylib = True
+omit =
+    Lib/test/*
+    setup.py
+
+[report]
+exclude_lines =
+    if __name__ == .__main__.:
+    except Exception
+ignore_errors = True
+

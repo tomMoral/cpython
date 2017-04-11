@@ -18,7 +18,7 @@ import types
 import unittest
 import warnings
 from operator import neg
-from test.support import TESTFN, unlink, check_warnings
+from test.support import TESTFN, unlink, check_warnings, without_coverage
 from test.support.script_helper import assert_python_ok
 try:
     import pty, signal
@@ -1663,6 +1663,7 @@ class TestSorted(unittest.TestCase):
 
 class ShutdownTest(unittest.TestCase):
 
+    @without_coverage
     def test_cleanup(self):
         # Issue #19255: builtins are still available at shutdown
         code = """if 1:

@@ -1,7 +1,7 @@
 # Test the module type
 import unittest
 import weakref
-from test.support import gc_collect, requires_type_collecting
+from test.support import gc_collect, requires_type_collecting, without_coverage
 from test.support.script_helper import assert_python_ok
 
 import sys
@@ -215,6 +215,7 @@ a = A(destroyed)"""
         self.assertEqual(r[-len(ends_with):], ends_with,
                          '{!r} does not end with {!r}'.format(r, ends_with))
 
+    @without_coverage
     @requires_type_collecting
     def test_module_finalization_at_shutdown(self):
         # Module globals and builtins should still be available during shutdown

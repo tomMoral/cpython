@@ -21,6 +21,7 @@ def target(local, weaklist):
 
 class BaseLocalTest:
 
+    @support.without_coverage
     def test_local_refs(self):
         self._local_refs(20)
         self._local_refs(50)

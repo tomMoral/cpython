@@ -10,7 +10,7 @@ import errno
 
 from test.support import (TESTFN, captured_stderr, check_impl_detail,
                           check_warnings, cpython_only, gc_collect, run_unittest,
-                          no_tracing, unlink, import_module)
+                          no_tracing, unlink, import_module, without_coverage)
 
 class NaiveException(Exception):
     def __init__(self, x):
@@ -1016,6 +1016,7 @@ class ExceptionTests(unittest.TestCase):
             os.listdir(__file__)
         self.assertEqual(cm.exception.errno, errno.ENOTDIR, cm.exception)
 
+    @without_coverage
     def test_unraisable(self):
         # Issue #22836: PyErr_WriteUnraisable() should give sensible reports
         class BrokenDel:

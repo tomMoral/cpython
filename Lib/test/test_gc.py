@@ -1,7 +1,7 @@
 import unittest
 from test.support import (verbose, refcount_test, run_unittest,
                           strip_python_stderr, cpython_only, start_threads,
-                          temp_dir, requires_type_collecting)
+                          temp_dir, requires_type_collecting, without_coverage)
 from test.support.script_helper import assert_python_ok, make_script
 
 import sys
@@ -631,6 +631,7 @@ class GCTests(unittest.TestCase):
         gc.collect() # this blows up (bad C pointer) when it fails
 
     @cpython_only
+    @without_coverage
     def test_garbage_at_shutdown(self):
         import subprocess
         code = """if 1:
@@ -679,6 +680,7 @@ class GCTests(unittest.TestCase):
         stderr = run_command(code % "gc.DEBUG_SAVEALL")
         self.assertNotIn(b"uncollectable objects at shutdown", stderr)
 
+    @without_coverage
     @requires_type_collecting
     def test_gc_main_module_at_shutdown(self):
         # Create a reference cycle through the __main__ module and check
@@ -693,6 +695,7 @@ class GCTests(unittest.TestCase):
         rc, out, err = assert_python_ok('-c', code)
         self.assertEqual(out.strip(), b'__del__ called')
 
+    @without_coverage
     @requires_type_collecting
     def test_gc_ordinary_module_at_shutdown(self):
         # Same as above, but with a non-__main__ module.

@@ -2630,3 +2630,22 @@ def disable_faulthandler():
     finally:
         if is_enabled:
             faulthandler.enable(file=fd, all_threads=True)
+
+
+def without_coverage(func):
+    # Skip the test if coverage is running. This is generally due to
+    # interferences between coverage, either on threads or IO streams
+    def wrapper_func(self, *args):
+        if _is_coverage_enabled():
+            self.skipTest("coverage interfers with this test.")
+        else:
+            func(self, *args)
+    return wrapper_func
+
+
+def _is_coverage_enabled():
+    # detect if coverage is active
+    coverage_enabled = os.environ.get("COVERAGE_PROCESS_START") is not None
+    coverage_enabled |= os.environ.get("TESTING") == "coverage"
+    return coverage_enabled
+

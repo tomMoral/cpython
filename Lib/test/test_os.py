@@ -1389,6 +1389,7 @@ OS_URANDOM_DONT_USE_FD = (
 @unittest.skipIf(OS_URANDOM_DONT_USE_FD ,
                  "os.random() does not use a file descriptor")
 class URandomFDTests(unittest.TestCase):
+    @support.without_coverage
     @unittest.skipUnless(resource, "test requires the resource module")
     def test_urandom_failure(self):
         # Check urandom() failing when it is not able to open /dev/random.

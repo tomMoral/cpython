@@ -28,6 +28,7 @@ class ClearTest(unittest.TestCase):
             tb.tb_frame.clear()
             tb = tb.tb_next
 
+    @support.without_coverage
     def test_clear_locals(self):
         class C:
             pass
@@ -94,6 +95,7 @@ class ClearTest(unittest.TestCase):
         self.assertTrue(endly)
 
     @support.cpython_only
+    @support.without_coverage
     def test_clear_refcycles(self):
         # .clear() doesn't leave any refcycle behind
         with support.disable_gc():

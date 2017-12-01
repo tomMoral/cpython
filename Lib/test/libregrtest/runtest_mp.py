@@ -149,8 +149,6 @@ class MultiprocessThread(threading.Thread):
 def run_tests_multiprocess(regrtest):
     output = queue.Queue()
     pending = MultiprocessIterator(regrtest.tests)
-    test_timeout = regrtest.ns.timeout
-    use_timeout = (test_timeout is not None)
 
     workers = [MultiprocessThread(pending, output, regrtest.ns)
                for i in range(regrtest.ns.use_mp)]
@@ -175,9 +173,6 @@ def run_tests_multiprocess(regrtest):
     get_timeout = max(PROGRESS_UPDATE, PROGRESS_MIN_TIME)
     try:
         while finished < regrtest.ns.use_mp:
-            if use_timeout:
-                faulthandler.dump_traceback_later(test_timeout, exit=True)
-
             try:
                 item = output.get(timeout=get_timeout)
             except queue.Empty:
@@ -219,9 +214,6 @@ def run_tests_multiprocess(regrtest):
         regrtest.interrupted = True
         pending.interrupted = True
         print()
-    finally:
-        if use_timeout:
-            faulthandler.cancel_dump_traceback_later()
 
     # If tests are interrupted, wait until tests complete
     wait_start = time.monotonic()

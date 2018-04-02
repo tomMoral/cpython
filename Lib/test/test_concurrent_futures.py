@@ -12,12 +12,14 @@ import itertools
 import logging
 from logging.handlers import QueueHandler
 import os
+import gc
 import queue
 import sys
 import threading
 import time
 import unittest
 import weakref
+from functools import partial
 from pickle import PicklingError
 
 from concurrent import futures
@@ -386,6 +388,49 @@ class ThreadPoolShutdownTest(ThreadPoolMixin, ExecutorShutdownTest, BaseTestCase
             for f in futures.as_completed(fs, timeout=10):
                 result = f.result()
                 self.assertTrue(result in expected_results, result)
+
+    def test_cycle_ref_gc_deadlock(self):
+        # bpo-21009: cyclic ref cause gc to 
+
+        def hacked_Queue_get(self, block=True):
+            if not block:
+                raise ValueError("This monkey patched get should not be "
+                                 "called with block=False.")
+            with self.not_empty:
+                gc.collect()
+                while not self._qsize():
+                    self.not_empty.wait()
+                item = self._get()
+                self.not_full.notify()
+                return item
+        
+        executor = futures.ThreadPoolExecutor(max_workers=1)
+        executor._work_queue.get = partial(hacked_Queue_get, executor._work_queue)
+        executor._myself = executor  # create cycle
+        event = threading.Event()
+        # This will probably run before we can exercise the hang, so we
+        # force synchronization
+        executor.submit(event.wait)
+        # Add a job that will cause a `Queue.get()` after our reference to
+        # the executor is deleted
+        f = executor.submit(print, "You won't see me")
+        # Remove strong reference, creating cyclic garbage
+        wq = executor._work_queue
+        del executor
+        # Allow the executor to continue
+        event.set()
+        try:
+            f.result(timeout=1)
+        except futures.TimeoutError:
+            # Remove the deadlocked queue from the at_exit call
+            items = list(futures.thread._threads_queues.items())
+            for t, q in items:
+                if q == wq:
+                    del futures.thread._threads_queues[t]
+                
+            raise RuntimeError("There is a deadlock in the ThreadPoolExecutor "
+                               "caused by the gc of cyclic references.")
+
 
 
 class ProcessPoolShutdownTest(ExecutorShutdownTest):
@@ -969,7 +1014,6 @@ class ExecutorDeadlockTest:
             with self.assertRaises(BrokenProcessPool):
                 f.result()
 
-
 create_executor_tests(ExecutorDeadlockTest,
                       executor_mixins=(ProcessPoolForkMixin,
                                        ProcessPoolForkserverMixin,
@@ -1208,6 +1252,7 @@ def test_main():
         test.support.run_unittest(__name__)
     finally:
         test.support.reap_children()
+
 
 if __name__ == "__main__":
     test_main()

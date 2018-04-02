@@ -134,7 +134,7 @@ class ThreadPoolExecutor(_base.Executor):
             raise ValueError("max_queue_size must be equal or greater 0")
 
         self._max_workers = max_workers
-        self._work_queue = queue.SimpleQueue()
+        self._work_queue = queue.Queue(max_queue_size)
         self._threads = set()
         self._broken = False
         self._shutdown = False
